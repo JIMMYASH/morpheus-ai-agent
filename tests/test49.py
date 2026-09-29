@@ -58,6 +58,8 @@ try:
             time.sleep(0.2)
     admin = connexion(open(os.path.join(HOME_TEST, ".config/morpheus/jeton_web")).read().strip())
     assert "claude-code" in appel(admin, "/api/modeles")[1]["autres"], "Claude Code proposé à l'administrateur"
+    page = urlopen(URL + "/", timeout=5).read().decode()
+    assert ".mode-discussions .bascule:not(#bascule-auto)" in page, "case Auto visible aussi dans les Discussions"
     assert appel(admin, "/api/modele", {"modele": "claude-code"})[0] == 200
     assert appel(admin, "/api/etat")[1]["modele"] == "claude-code"
 

@@ -4727,8 +4727,9 @@ code, pre { font-family: var(--mono); font-size: 13px; }
 .projet-ligne:hover { background: var(--panneau2); }
 .projet-ligne .projet-bouton:hover { background: transparent !important; }
 .projet-ligne input { flex: 1; min-width: 0; margin: 3px; padding: 4px 6px; }
-/* Discussions : pas de projet, donc ni arborescence, ni mode plan, ni annulation de fichiers */
-.mode-discussions #btn-volet, .mode-discussions .bascule,
+/* Discussions : pas de projet, donc ni arborescence, ni mode plan, ni annulation de fichiers
+   (la case Auto reste visible : le mode auto agit aussi ici, il doit pouvoir être vu et décoché) */
+.mode-discussions #btn-volet, .mode-discussions .bascule:not(#bascule-auto),
 .mode-discussions .onglets [data-onglet="fichiers"], .mode-discussions #btn-rafraichir { display: none; }
 .conv-actions button { padding: 2px 6px; background: transparent; border-color: transparent; font-size: 13px; }
 .conv-actions button:hover { border-color: var(--bord); }
