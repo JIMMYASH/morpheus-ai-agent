@@ -51,7 +51,7 @@ Python : rien à installer avec pip.
 Il suffit de récupérer le dossier (ou même le seul fichier `morpheus.py`) et de créer un alias :
 
 ```bash
-git clone <adresse-du-dépôt> ~/outils/morpheus
+git clone https://github.com/JIMMYASH/morpheus-ai-agent.git ~/outils/morpheus
 echo "alias morpheus='python3 ~/outils/morpheus/morpheus.py'" >> ~/.bashrc
 source ~/.bashrc
 ```

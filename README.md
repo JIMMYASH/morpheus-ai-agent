@@ -41,7 +41,7 @@ Il faut Linux, Python 3.10 ou plus, et [Ollama](https://ollama.com) avec un mod�
 ou Claude Code).
 
 ```bash
-git clone <adresse-du-dépôt> ~/outils/morpheus
+git clone https://github.com/JIMMYASH/morpheus-ai-agent.git ~/outils/morpheus
 echo "alias morpheus='python3 ~/outils/morpheus/morpheus.py'" >> ~/.bashrc
 source ~/.bashrc
 ```
