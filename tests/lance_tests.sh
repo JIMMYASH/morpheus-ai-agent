@@ -10,6 +10,7 @@ export MORPHEUS_TEST_HOME="$TRAVAIL/home"
 export MORPHEUS_URL_OLLAMA="http://127.0.0.1:18434"
 export MORPHEUS_URL_LLAMACPP="http://127.0.0.1:18080"
 export MORPHEUS_URL_TELEGRAM="http://127.0.0.1:18091"   # jamais le vrai Telegram pendant les tests
+export MORPHEUS_URL_REGISTRE_OLLAMA="http://127.0.0.1:18434"   # bibliothèque d'Ollama simulée par faux.py
 export MORPHEUS_CLAUDE="/inexistant/claude"             # jamais le vrai Claude Code (test48 utilise faux_claude.py)
 unset MORPHEUS_MODELE MORPHEUS_SERVEUR MORPHEUS_NUM_CTX
 export MORPHEUS_MODE=dev        # les tests existants modifient des fichiers ; le mode Chat a son propre test

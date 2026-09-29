@@ -276,6 +276,13 @@ Le modèle est choisi par `"modele"` dans `config.json`, par `MORPHEUS_MODELE`, 
 déroulante de l'interface web. `num_ctx` (65 536 par défaut) fixe la taille du contexte ;
 `keep_alive` (30 min) garde le modèle chargé entre deux questions.
 
+**Modèle pas encore installé** : si tu choisis dans l'interface web (liste ou « Autre modèle… ») un
+modèle qui existe dans la bibliothèque d'Ollama mais n'est pas sur ta machine, MORPHEUS propose de le
+télécharger en indiquant sa taille (« Le télécharger maintenant (1,3 Go) ? »). La progression
+s'affiche à côté de la liste des modèles (✕ pour annuler) ; tu peux continuer à travailler pendant ce
+temps, et le modèle est choisi automatiquement à la fin. Un nom inconnu est simplement refusé. Un
+seul téléchargement à la fois, réservé à l'administrateur. Dans le terminal : `ollama pull nom`.
+
 ### 5.2 Modèles cloud d'Ollama
 
 Après `ollama signin`, un modèle cloud (ex. `kimi-k2.7-code:cloud`, `gpt-oss:120b-cloud`) s'utilise
@@ -583,10 +590,11 @@ d'environnement. L'interface web (Paramètres) écrit dans `config.json`.
 | `style` | `"defaut"` | Mode de conversation (mémorisé automatiquement) |
 | `commande_claude` | `"claude"` | Programme Claude Code |
 | `url_telegram` | `https://api.telegram.org` | API Telegram |
+| `url_registre_ollama` | `https://registry.ollama.ai` | Bibliothèque d'Ollama (taille d'un modèle à télécharger) |
 
 Variables d'environnement : `MORPHEUS_SERVEUR`, `MORPHEUS_MODELE`, `MORPHEUS_NUM_CTX`,
 `MORPHEUS_URL_OLLAMA`, `MORPHEUS_URL_LLAMACPP`, `MORPHEUS_MODE`, `MORPHEUS_CLAUDE`,
-`MORPHEUS_URL_TELEGRAM`.
+`MORPHEUS_URL_TELEGRAM`, `MORPHEUS_URL_REGISTRE_OLLAMA`.
 
 Exemple :
 
@@ -630,7 +638,7 @@ Exemple :
 |---|---|
 | « Erreur du serveur de modèle » | `systemctl status ollama`, puis `ollama list` pour vérifier le nom du modèle ; pour un modèle cloud : `ollama signin` |
 | Une nouveauté n'apparaît pas dans le web | `systemctl --user restart morpheus`, puis recharger la page |
-| Le choix d'un modèle revient à l'ancien | Le serveur ne connaît pas ce modèle (nom mal écrit, modèle non téléchargé, ou service pas redémarré) : un message s'affiche en bas de la page |
+| Le choix d'un modèle revient à l'ancien | Le serveur ne connaît pas ce modèle (nom mal écrit, ou service pas redémarré) : un message s'affiche en bas de la page. Un modèle simplement pas installé est proposé au téléchargement |
 | « Claude Code introuvable » | Installer Claude Code, ou régler `commande_claude` ; vérifier que `claude` se lance dans un terminal |
 | « Erreur de Claude Code » (connexion) | Lancer `claude` une fois dans un terminal pour se connecter |
 | Le modèle tourne en rond | « Arrêter » ou Ctrl+C, puis reformuler plus précisément ; `/reset` pour repartir de zéro |

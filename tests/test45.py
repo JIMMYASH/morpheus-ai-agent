@@ -35,7 +35,7 @@ try:
     # Confirmations dans la page : confirm() / prompt() peuvent être bloqués par le navigateur sans rien afficher
     import re
     assert not re.search(r"\b(confirm|prompt|alert)\(", page), "utiliser confirmer() / demanderTexte()"
-    assert '<dialog id="dlg-confirmer">' in page and page.count("await confirmer(") == 5
+    assert '<dialog id="dlg-confirmer">' in page and page.count("await confirmer(") == 7   # + télécharger un modèle, annuler le téléchargement
     print("OK : bouton Nouvelle conversation au-dessus des projets")
 finally:
     serveur.terminate()

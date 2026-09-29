@@ -79,6 +79,7 @@ CONFIG = {
     "url_telegram": "https://api.telegram.org",
     "style": "defaut",                       # mode de conversation : "defaut", "expert" ou "pedagogique"
     "commande_claude": "claude",             # programme Claude Code (modèles « claude-code », « claude-code:opus »…)
+    "url_registre_ollama": "https://registry.ollama.ai",   # bibliothèque d'Ollama (taille d'un modèle à télécharger)
 }
 
 DOSSIER_CONFIG = Path.home() / ".config" / "morpheus"
@@ -100,6 +101,7 @@ def charger_config():
     CONFIG["mode"] = normaliser_mode(os.environ.get("MORPHEUS_MODE", CONFIG.get("mode")))
     CONFIG["url_telegram"] = os.environ.get("MORPHEUS_URL_TELEGRAM", CONFIG["url_telegram"]).rstrip("/")
     CONFIG["commande_claude"] = os.environ.get("MORPHEUS_CLAUDE", CONFIG["commande_claude"])
+    CONFIG["url_registre_ollama"] = os.environ.get("MORPHEUS_URL_REGISTRE_OLLAMA", CONFIG["url_registre_ollama"]).rstrip("/")
 
 
 def normaliser_mode(valeur):
@@ -3737,6 +3739,88 @@ def modeles_claude(admin=True):
     return MODELES_CLAUDE if admin and claude_installe() else []
 
 
+NOM_MODELE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]*(/[A-Za-z0-9._\-]+)*(:[A-Za-z0-9._\-]+)?$")
+TELECHARGEMENT = {}             # téléchargement en cours ou dernier terminé (un seul à la fois, par l'administrateur)
+VERROU_TELECHARGEMENT = threading.Lock()
+
+
+def infos_telechargement(modele):
+    """Un modèle Ollama non installé peut-il être téléchargé ? Renvoie (existe, taille_en_octets_ou_None).
+    Interroge la bibliothèque d'Ollama ; hors de cette bibliothèque (hf.co/…) ou sans réseau, la taille est
+    inconnue et c'est le téléchargement lui-même qui dira si le modèle existe."""
+    if not NOM_MODELE.match(modele or "") or ".." in modele:
+        return False, None
+    nom, _, etiquette = modele.partition(":")
+    morceaux = nom.split("/")
+    if len(morceaux) > 2 or "." in morceaux[0] and len(morceaux) > 1:
+        return True, None                                   # autre registre (hf.co/…)
+    chemin = "/".join(morceaux) if len(morceaux) == 2 else "library/" + nom
+    requete = Request(f"{CONFIG['url_registre_ollama']}/v2/{chemin}/manifests/{etiquette or 'latest'}",
+                      headers={"Accept": "application/vnd.docker.distribution.manifest.v2+json"})
+    try:
+        with urlopen(requete, timeout=8) as r:
+            manifeste = json.loads(r.read())
+    except HTTPError as e:
+        return (False, None) if e.code == 404 else (True, None)
+    except (OSError, ValueError):
+        return True, None
+    tailles = [c.get("size") or 0 for c in manifeste.get("layers") or []] + [(manifeste.get("config") or {}).get("size") or 0]
+    return True, (sum(tailles) or None)
+
+
+def telecharger_modele(modele):
+    """Fil d'exécution : « ollama pull » via l'API, progression dans TELECHARGEMENT."""
+    etat = TELECHARGEMENT
+    couches = {}
+    try:
+        requete = Request(CONFIG["url_ollama"].rstrip("/") + "/api/pull", method="POST",
+                          data=json.dumps({"model": modele, "stream": True}).encode(),
+                          headers={"Content-Type": "application/json"})
+        with urlopen(requete, timeout=120) as reponse:
+            for ligne in reponse:
+                if etat.get("annuler"):
+                    etat["erreur"] = "téléchargement annulé"
+                    return
+                try:
+                    morceau = json.loads(ligne)
+                except ValueError:
+                    continue
+                if morceau.get("error"):
+                    etat["erreur"] = str(morceau["error"])[:300]
+                    return
+                etat["statut"] = str(morceau.get("status") or "")[:100]
+                if morceau.get("digest") and morceau.get("total"):
+                    couches[morceau["digest"]] = (morceau["total"], morceau.get("completed") or 0)
+                    etat["total"] = sum(t for t, _ in couches.values())
+                    etat["fait"] = sum(min(f, t) for t, f in couches.values())
+                if morceau.get("status") == "success":
+                    etat["fait"] = etat.get("total") or 0
+                    etat["reussi"] = True
+                    return
+        etat["erreur"] = "téléchargement interrompu"
+    except HTTPError as e:
+        etat["erreur"] = f"Ollama a refusé le téléchargement ({e.code})"
+    except (OSError, ValueError) as e:
+        etat["erreur"] = f"Ollama injoignable ({type(e).__name__})"
+    finally:
+        etat["fini"] = True
+
+
+def lancer_telechargement(modele):
+    """Démarre le téléchargement d'un modèle Ollama en arrière-plan (un seul à la fois)."""
+    if CONFIG["serveur"] != "ollama" or est_claude_code(modele):
+        raise ValueError("seuls les modèles Ollama peuvent être téléchargés")
+    if not NOM_MODELE.match(modele or "") or ".." in modele:
+        raise ValueError("nom de modèle invalide")
+    with VERROU_TELECHARGEMENT:
+        if TELECHARGEMENT and not TELECHARGEMENT.get("fini"):
+            raise ValueError(f"un téléchargement est déjà en cours ({TELECHARGEMENT['modele']})")
+        TELECHARGEMENT.clear()
+        TELECHARGEMENT.update(modele=modele, statut="démarrage", total=0, fait=0, fini=False, reussi=False,
+                              erreur=None, annuler=False)
+        threading.Thread(target=telecharger_modele, args=(modele,), daemon=True).start()
+
+
 def lister_modeles():
     """Modèles installés sur le serveur (pour la liste déroulante)."""
     try:
@@ -3927,6 +4011,8 @@ class GestionnaireWeb(BaseHTTPRequestHandler):
                 self._envoyer(200, lire_fichier_web(s.racine, requete.get("chemin", "")))
             elif not s.admin:
                 self._erreur(403, "réservé à l'administrateur")
+            elif url.path == "/api/modele/telechargement":
+                self._envoyer(200, {c: v for c, v in TELECHARGEMENT.items() if c != "annuler"})
             elif url.path == "/api/config":
                 installes = lister_modeles()
                 self._envoyer(200, {"config": {c: CONFIG.get(c) for c in CLES_CONFIG_WEB},
@@ -4076,6 +4162,12 @@ class GestionnaireWeb(BaseHTTPRequestHandler):
                 if est_claude_code(modele) and not s.admin:
                     raise ValueError("Claude Code est réservé à l'administrateur")
                 if not modele_existe(modele):
+                    if s.admin and CONFIG["serveur"] == "ollama" and not est_claude_code(modele):
+                        existe, taille = infos_telechargement(modele)
+                        if existe:               # la page propose de le télécharger
+                            self._envoyer(404, {"erreur": f"le modèle « {modele} » n'est pas installé",
+                                                "telechargeable": True, "modele": modele, "taille": taille})
+                            return
                     raise ValueError(f"modèle « {modele} » introuvable sur le serveur")
                 if s.admin:              # le modèle par défaut de MORPHEUS (aussi dans le terminal)
                     enregistrer_config({"modele": modele})
@@ -4118,6 +4210,12 @@ class GestionnaireWeb(BaseHTTPRequestHandler):
                 self._envoyer(200, {"ok": True, "permissions": resume_permissions(s.permissions)})
             elif not s.admin:
                 self._erreur(403, "réservé à l'administrateur")
+            elif url.path == "/api/modele/telecharger":
+                lancer_telechargement(str(corps.get("modele") or "").strip())
+                self._envoyer(200, {"ok": True})
+            elif url.path == "/api/modele/annuler":
+                TELECHARGEMENT["annuler"] = True
+                self._envoyer(200, {"ok": True})
             elif url.path == "/api/config":
                 enregistrer_config(corps)
                 self._envoyer(200, {"ok": True, "config": {c: CONFIG.get(c) for c in CLES_CONFIG_WEB}})
@@ -4744,6 +4842,9 @@ header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; bord
 .projet strong { display: block; }
 .projet span { color: var(--doux); font-size: 13px; }
 .ligne-modele { display: flex; align-items: center; gap: 6px; }
+#telechargement { font-size: 12px; color: var(--doux); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+#telechargement progress { width: 90px; height: 8px; }
+#telechargement button { padding: 0 5px; font-size: 12px; background: transparent; }
 #choix-modele { font-size: 13px; padding: 1px 4px; max-width: 260px; background: transparent; color: var(--doux);
   border-color: transparent; cursor: pointer; margin-left: -5px; }
 #choix-modele:hover, #choix-modele:focus { border-color: var(--bord); color: var(--texte); }
@@ -4958,7 +5059,7 @@ dialog legend { padding: 0 6px; font-weight: 600; }
   <main id="centre">
     <header>
       <button id="btn-barre" class="discret" title="Projets">☰</button>
-      <div class="projet"><strong id="nom-projet">…</strong><span class="ligne-modele"><select id="choix-modele" title="Changer de modèle"></select><span id="info-serveur"></span></span></div>
+      <div class="projet"><strong id="nom-projet">…</strong><span class="ligne-modele"><select id="choix-modele" title="Changer de modèle"></select><span id="info-serveur"></span><span id="telechargement" hidden><span id="texte-telechargement"></span><progress id="barre-telechargement" max="1" value="0"></progress><button type="button" id="annuler-telechargement" title="Annuler le téléchargement">✕</button></span></span></div>
       <div class="actions">
         <button type="button" id="choix-mode" class="interrupteur" role="switch" aria-checked="false"
           title="Mode Chat : questions, lecture et web, aucune modification — cliquer pour passer en mode développeur"><span class="lib-chat">Chat</span><span class="piste"><span class="curseur"></span></span><span class="lib-dev">Développeur</span></button>
@@ -5132,7 +5233,7 @@ async function api(chemin, donnees) {
   const r = await fetch(chemin, options);
   if (r.status === 401 && chemin !== "/api/connexion") { montrerConnexion(); throw new Error("non connecté"); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.erreur || ("erreur " + r.status));
+  if (!r.ok) { const e = new Error(j.erreur || ("erreur " + r.status)); e.donnees = j; throw e; }
   return j;
 }
 function enBas() { return zoneMessages.scrollHeight - zoneMessages.scrollTop - zoneMessages.clientHeight < 120; }
@@ -5497,8 +5598,48 @@ $("#choix-modele").addEventListener("change", async e => {
     if (!modele) { majChoixModele(); return; }
   }
   try { await api("/api/modele", { modele }); infos.modele = modele; toast(`Modèle : ${modele}`); await chargerModeles(); }
-  catch (err) { toast(err.message); }
+  catch (err) {
+    const d = err.donnees || {};
+    if (d.telechargeable) {
+      majChoixModele();
+      const taille = d.taille ? ` (${formaterTaille(d.taille)})` : " (taille inconnue)";
+      if (await confirmer(`Le modèle « ${d.modele} » n'est pas installé. Le télécharger maintenant${taille} ? `
+          + "Tu peux continuer à utiliser MORPHEUS pendant le téléchargement.", "Télécharger")) {
+        try { await api("/api/modele/telecharger", { modele: d.modele }); suivreTelechargement(); }
+        catch (e2) { toast(e2.message); }
+      }
+    } else toast(err.message);
+  }
   majChoixModele();
+});
+/* ---------- téléchargement d'un modèle (ollama pull) ---------- */
+function formaterTaille(o) { return o >= 1e9 ? (o / 1e9).toFixed(1).replace(".", ",") + " Go" : Math.max(1, Math.round(o / 1e6)) + " Mo"; }
+let suiviTelechargement = null;
+function suivreTelechargement() {
+  if (suiviTelechargement) return;
+  const etape = async () => {
+    let t;
+    try { t = await api("/api/modele/telechargement"); } catch (e) { suiviTelechargement = null; return; }
+    const zone = $("#telechargement");
+    if (!t.modele) { zone.hidden = true; suiviTelechargement = null; return; }
+    if (!t.fini) {
+      zone.hidden = false;
+      $("#barre-telechargement").value = t.total ? t.fait / t.total : 0;
+      $("#texte-telechargement").textContent = `⬇ ${t.modele} : ` + (t.total
+        ? `${Math.floor(100 * t.fait / t.total)} % (${formaterTaille(t.fait)} / ${formaterTaille(t.total)})` : t.statut || "…");
+      suiviTelechargement = setTimeout(etape, 1000);
+      return;
+    }
+    zone.hidden = true; suiviTelechargement = null;
+    if (!t.reussi) { toast(`Téléchargement de ${t.modele} : ${t.erreur || "échec"}`); return; }
+    try { await api("/api/modele", { modele: t.modele }); infos.modele = t.modele; toast(`Modèle ${t.modele} installé et choisi`); }
+    catch (e) { toast(`${t.modele} installé ; ${e.message}`); }
+    await chargerModeles();
+  };
+  etape();
+}
+$("#annuler-telechargement").addEventListener("click", async () => {
+  if (await confirmer("Annuler le téléchargement en cours ?", "Annuler le téléchargement")) api("/api/modele/annuler", {}).catch(() => {});
 });
 function majEtat() {
   const k = n => (n / 1024).toFixed(1) + "k";
@@ -5983,6 +6124,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") app.classLis
   try { etat = await api("/api/etat"); } catch (e) { return; }
   infos = etat; instance = etat.instance; totalInitial = etat.total; majInfos(); setOccupe(etat.occupe);
   chargerProjets(); chargerModeles();
+  if (etat.admin) api("/api/modele/telechargement").then(t => { if (t.modele && !t.fini) suivreTelechargement(); }).catch(() => {});
   connecterFlux(etat.debut);
   saisie.focus();
 })();

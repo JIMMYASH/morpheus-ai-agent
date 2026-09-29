@@ -1,6 +1,8 @@
 import json, threading, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 SCRIPT=[]; RECUS=[]; MODELES=["qwen3-coder-next","autre:7b"]; CLOUD=["kimi-k2.7-code:cloud"]
+REGISTRE={}      # bibliothèque d'Ollama simulée : "nom:étiquette" -> taille des couches ; téléchargeables par /api/pull
+PAUSE_PULL=0     # secondes entre deux lignes de progression (pour tester l'annulation)
 def ol(content="", tool_calls=None):
     return {"content":content,"tool_calls":tool_calls}
 def erreur(code=500, message="Internal Server Error"):
@@ -8,6 +10,22 @@ def erreur(code=500, message="Internal Server Error"):
 class H(BaseHTTPRequestHandler):
     def do_POST(s):
         corps=json.loads(s.rfile.read(int(s.headers["Content-Length"])))
+        if s.path=="/api/pull":   # téléchargement d'un modèle de REGISTRE, progression ligne par ligne
+            nom=corps.get("model",""); cle=nom if ":" in nom else nom+":latest"
+            s.send_response(200); s.end_headers()
+            if cle not in REGISTRE:
+                s.wfile.write(b'{"error":"pull model manifest: file does not exist"}\n'); return
+            try:
+                s.wfile.write(b'{"status":"pulling manifest"}\n')
+                for i,taille in enumerate(REGISTRE[cle]):
+                    for fait in (0, taille//2, taille):
+                        s.wfile.write((json.dumps({"status":"pulling","digest":"sha256:%d"%i,"total":taille,"completed":fait})+"\n").encode())
+                        s.wfile.flush(); time.sleep(PAUSE_PULL)
+                MODELES.append(nom)
+                s.wfile.write(b'{"status":"success"}\n')
+            except OSError:
+                pass
+            return
         if s.path=="/api/show":   # fiche d'un modèle : connu s'il est installé ou dans CLOUD
             s.send_response(200 if corps.get("model") in MODELES+CLOUD else 404); s.end_headers(); s.wfile.write(b"{}"); return
         RECUS.append((s.path,corps))
@@ -42,6 +60,12 @@ class H(BaseHTTPRequestHandler):
                 s.wfile.write(("data: "+json.dumps({"choices":[{"delta":{"tool_calls":[{"index":j,"function":{"arguments":a[10:]}}]}}]})+"\n\n").encode())
             s.wfile.write(b"data: [DONE]\n\n")
     def do_GET(s):
+        if s.path.startswith("/v2/"):   # manifeste de la bibliothèque d'Ollama : /v2/library/<nom>/manifests/<étiquette>
+            morceaux=s.path.split("/"); nom="/".join(morceaux[2:-2]).replace("library/",""); cle=nom+":"+morceaux[-1]
+            if cle not in REGISTRE:
+                s.send_response(404); s.end_headers(); s.wfile.write(b"{}"); return
+            b=json.dumps({"config":{"size":500},"layers":[{"size":t} for t in REGISTRE[cle]]}).encode()
+            s.send_response(200); s.end_headers(); s.wfile.write(b); return
         if s.path=="/api/tags":   # liste des modèles installés (Ollama)
             b=json.dumps({"models":[{"name":n} for n in MODELES]}).encode()
             s.send_response(200); s.end_headers(); s.wfile.write(b); return
