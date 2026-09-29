@@ -100,8 +100,13 @@ try:
     # Arrêter pendant la réflexion : le modèle ne répond qu'au bout de 6 s, l'arrêt doit être immédiat
     n0 = len(evenements())
     faux.SCRIPT.append({"pause": 6})
+    n_recus = len(faux.RECUS)
     assert appel("/api/message", {"texte": "question longue"})[0] == 200
-    time.sleep(0.8)
+    for _ in range(100):             # attendre que la demande soit vraiment chez le modèle (machine lente)
+        if len(faux.RECUS) > n_recus:
+            break
+        time.sleep(0.05)
+    time.sleep(0.2)
     assert appel("/api/modifier", {"rang": 1, "texte": "x"})[0] == 409, "pas de modification pendant le travail"
     debut = time.time()
     assert appel("/api/arreter", {})[1]["ok"] is True

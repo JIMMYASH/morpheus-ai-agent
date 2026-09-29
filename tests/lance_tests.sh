@@ -28,6 +28,9 @@ for t in "$DOSSIER_TESTS"/test*.py; do
         echo "  OK      $nom"
     else
         echo "  ÉCHEC   $nom   (détails : $sortie)"
+        if [ -n "${CI:-}" ]; then           # GitHub Actions : la sortie n'est lisible que dans le journal
+            grep -B 3 -A 15 "Traceback" "$sortie" | head -40 | sed 's/^/          /'
+        fi
         echons=$((echons + 1))
     fi
 done

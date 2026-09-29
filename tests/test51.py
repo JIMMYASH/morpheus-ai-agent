@@ -75,8 +75,11 @@ try:
     assert appel(admin, "/api/modele/telecharger", {"modele": "lent"})[0] == 200
     code, r = appel(admin, "/api/modele/telecharger", {"modele": "petit:1b"})
     assert code == 400 and "déjà en cours" in r["erreur"], r
-    time.sleep(0.8)
-    t = appel(admin, "/api/modele/telechargement")[1]
+    for _ in range(100):                     # attendre que le téléchargement ait vraiment commencé
+        t = appel(admin, "/api/modele/telechargement")[1]
+        if t["fait"] > 0:
+            break
+        time.sleep(0.05)
     assert not t["fini"] and 0 < t["fait"] < 15_000_000_000, t
     assert appel(admin, "/api/modele/annuler", {})[0] == 200
     t = attendre_fin(admin)
