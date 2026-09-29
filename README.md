@@ -12,7 +12,8 @@ llama.cpp, Ollama cloud models, or Claude Code, and asks for your approval befor
 Linux, Python 3.10+, MIT license.*
 
 ---
-<img width="1321" height="1001" alt="image" src="https://github.com/user-attachments/assets/555078f1-491e-4db2-b99b-120a88018449" />
+<img width="1332" height="1007" alt="image" src="https://github.com/user-attachments/assets/39fc06a5-5663-4678-961d-5ebe0ace366e" />
+
 
 Morpheus lit tes fichiers, les modifie, lance des commandes, cherche sur le web… et **te montre
 chaque action avant de la faire** : un diff pour une modification de fichier, la commande complète
