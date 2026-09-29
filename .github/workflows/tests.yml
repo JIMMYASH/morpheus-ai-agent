@@ -1,0 +1,22 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Identité git (certains tests créent des dépôts)
+        run: git config --global user.email "ci@example.com" && git config --global user.name "CI"
+      - name: Tests (faux serveur de modèle, aucun vrai modèle appelé)
+        run: bash tests/lance_tests.sh
